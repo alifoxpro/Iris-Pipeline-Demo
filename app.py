@@ -71,13 +71,70 @@ def _remap_state_dict(sd):
     return out
 
 
+# ---------------------------------------------------------------------
+# Remote asset bootstrap — download trained weights + gallery on first
+# launch (used by the Streamlit Cloud deployment where the local
+# outputs/ artefacts are not bundled). Hosted as a GitHub Release so
+# the git repository itself stays small.
+# ---------------------------------------------------------------------
+_RELEASE_BASE = (
+    "https://github.com/alifoxpro/Iris-Pipeline-Demo/"
+    "releases/download/v1.0-weights"
+)
+_REMOTE_ASSETS = {
+    cfg.OUT_CKPT / "cnn_best.pth": f"{_RELEASE_BASE}/cnn_best.pth",
+    cfg.OUT_CKPT / "dbn_best.pth": f"{_RELEASE_BASE}/dbn_best.pth",
+    cfg.OUT_FEAT / "cnn_eval.npz": f"{_RELEASE_BASE}/cnn_eval.npz",
+    cfg.OUT_FEAT / "dbn_eval.npz": f"{_RELEASE_BASE}/dbn_eval.npz",
+}
+
+
+@st.cache_resource(show_spinner=False)
+def ensure_remote_assets() -> bool:
+    """Download trained weights + gallery from the GitHub Release if
+    they are not already on disk.
+
+    Returns True if every expected file is now present, False otherwise.
+    Runs once per Streamlit session (cached).
+    """
+    import urllib.request
+    import shutil
+
+    pending = [(p, u) for p, u in _REMOTE_ASSETS.items() if not p.exists()]
+    if not pending:
+        return True
+
+    with st.status(
+        f"Fetching {len(pending)} model asset(s) from GitHub Release "
+        "(first launch only)...",
+        expanded=True,
+    ) as status:
+        for local_path, url in pending:
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = local_path.with_suffix(local_path.suffix + ".part")
+            st.write(f"Downloading **{local_path.name}** ...")
+            try:
+                with urllib.request.urlopen(url, timeout=120) as resp:
+                    with open(tmp, "wb") as out:
+                        shutil.copyfileobj(resp, out, length=1 << 20)
+                tmp.replace(local_path)
+            except Exception as e:
+                status.update(label=f"Download failed: {e}",
+                              state="error")
+                return False
+        status.update(label="All model assets ready.",
+                      state="complete", expanded=False)
+    return True
+
+
 @st.cache_resource(show_spinner="Loading IrisDeepNet + DBN-style weights...")
 def load_models():
     """Load both networks with their CASIA-trained weights (keys remapped).
 
-    Returns (None, None) if the checkpoints are not available (e.g. the
-    cloud deployment, which does not carry the ~47 MB .pth files).
+    Returns (None, None) if the checkpoints are not available (e.g.
+    the GitHub Release download failed).
     """
+    ensure_remote_assets()
     cnn_ckpt = cfg.OUT_CKPT / "cnn_best.pth"
     dbn_ckpt = cfg.OUT_CKPT / "dbn_best.pth"
     if not cnn_ckpt.exists() or not dbn_ckpt.exists():
@@ -105,8 +162,9 @@ def load_gallery():
     """Load the pre-computed CASIA gallery embeddings.
 
     Returns (None, None, None, None) when the gallery .npz files are
-    not present (cloud deployments).
+    not present (and the GitHub Release download also failed).
     """
+    ensure_remote_assets()
     cnn_npz = cfg.OUT_FEAT / "cnn_eval.npz"
     dbn_npz = cfg.OUT_FEAT / "dbn_eval.npz"
     if not cnn_npz.exists() or not dbn_npz.exists():
@@ -556,12 +614,13 @@ with tab_feat:
 
     if cnn is None or dbn is None:
         st.warning(
-            "**Trained checkpoints not available on this deployment.** "
-            "The .pth files (cnn_best.pth, dbn_best.pth, ~47 MB total) "
-            "are not bundled with the cloud demo. Clone the repository "
-            "locally and run `run_pipeline.py` to generate them from "
-            "CASIA-Iris-Thousand. See the Algorithms tab for the full "
-            "network specifications."
+            "**Trained checkpoints could not be loaded.** They are "
+            "normally fetched automatically from the "
+            "[v1.0-weights GitHub Release]"
+            "(https://github.com/alifoxpro/Iris-Pipeline-Demo/"
+            "releases/tag/v1.0-weights) on first launch. The download "
+            "appears to have failed — check the app logs for details, "
+            "or clone the repository and run `run_pipeline.py` locally."
         )
     else:
         st.caption(f"Embedding device: `{cfg.DEVICE}`")
@@ -682,13 +741,15 @@ with tab_id:
     if (cnn_emb is None or dbn_emb is None or
             cnn_gal is None or dbn_gal is None):
         st.warning(
-            "**Live identification is unavailable on this deployment.** "
-            "It requires both the trained checkpoints (~47 MB .pth) "
-            "and the 6,000-vector CASIA gallery (~82 MB .npz). "
-            "Neither is bundled with the cloud demo. The precomputed "
-            "batch results (rank-1, EER, AUC, McNemar) are available "
-            "on the **Results and Tables** tab, and the full "
-            "pseudocode is on the **Algorithms** tab."
+            "**Live identification is unavailable.** The trained "
+            "checkpoints and 6,000-vector CASIA gallery are normally "
+            "fetched automatically from the "
+            "[v1.0-weights GitHub Release]"
+            "(https://github.com/alifoxpro/Iris-Pipeline-Demo/"
+            "releases/tag/v1.0-weights) on first launch. The download "
+            "appears to have failed — see the app logs. The precomputed "
+            "batch results are still available on the **Results and "
+            "Tables** tab."
         )
         st.stop()
 

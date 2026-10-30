@@ -1,0 +1,51 @@
+{
+  "A1_Full_System (CNN+DBN+LR)": {
+    "rank1": 80.325,
+    "eer": 5.204000000000002,
+    "auc": 0.987712175,
+    "delta": 0.0,
+    "note": "Full proposed system"
+  },
+  "A2_Borda_Count_only": {
+    "rank1": 69.35,
+    "eer": 5.075499999999998,
+    "auc": 0.98718293875,
+    "delta": -10.975000000000009,
+    "note": "Replace LR fusion with Borda Count"
+  },
+  "A3_Highest_Rank_only": {
+    "rank1": 64.075,
+    "eer": 6.625000000000002,
+    "auc": 0.9781372887500001,
+    "delta": -16.25,
+    "note": "Replace LR fusion with Highest Rank"
+  },
+  "A4_CNN_only_no_DBN": {
+    "rank1": 70.72500000000001,
+    "eer": 7.689499999999999,
+    "auc": 0.9773103274999999,
+    "delta": -9.599999999999994,
+    "note": "Remove DBN branch (no fusion)"
+  },
+  "A5_DBN_only_no_CNN": {
+    "rank1": 58.975,
+    "eer": 12.894,
+    "auc": 0.9349053712500001,
+    "delta": -21.35,
+    "note": "Remove CNN branch (no fusion)"
+  },
+  "A6_CNN_no_augmentation": {
+    "rank1": 71.89999999999999,
+    "eer": 7.840333333333335,
+    "auc": 0.9729843087500001,
+    "delta": 1.174999999999983,
+    "note": "CNN trained WITHOUT data augmentation (vs CNN-only baseline)"
+  },
+  "A7_CNN_no_ImageNet_pretraining": {
+    "rank1": 60.650000000000006,
+    "eer": 18.194916666666668,
+    "auc": 0.902368095,
+    "delta": -10.075000000000003,
+    "note": "CNN with random init (vs CNN-only baseline)"
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "n_probes": 4000,
+  "mcnemar": [
+    {
+      "method_A": "Logistic Regression",
+      "method_B": "IrisDeepNet",
+      "A_only_correct": 453,
+      "B_only_correct": 69,
+      "p_value": 3.001948598669749e-70,
+      "significance": "***"
+    },
+    {
+      "method_A": "Logistic Regression",
+      "method_B": "DBN",
+      "A_only_correct": 1080,
+      "B_only_correct": 226,
+      "p_value": 1.042627717417821e-133,
+      "significance": "***"
+    },
+    {
+      "method_A": "Logistic Regression",
+      "method_B": "Highest Rank",
+      "A_only_correct": 795,
+      "B_only_correct": 145,
+      "p_value": 3.359666776523277e-109,
+      "significance": "***"
+    },
+    {
+      "method_A": "Logistic Regression",
+      "method_B": "Borda Count",
+      "A_only_correct": 516,
+      "B_only_correct": 77,
+      "p_value": 9.59120336298851e-81,
+      "significance": "***"
+    },
+    {
+      "method_A": "Borda Count",
+      "method_B": "IrisDeepNet",
+      "A_only_correct": 461,
+      "B_only_correct": 516,
+      "p_value": 0.08400513744953834,
+      "significance": "ns"
+    },
+    {
+      "method_A": "Borda Count",
+      "method_B": "Highest Rank",
+      "A_only_correct": 574,
+      "B_only_correct": 363,
+      "p_value": 5.617432476190835e-12,
+      "significance": "***"
+    },
+    {
+      "method_A": "IrisDeepNet",
+      "method_B": "DBN",
+      "A_only_correct": 1037,
+      "B_only_correct": 567,
+      "p_value": 4.100152032167216e-32,
+      "significance": "***"
+    }
+  ],
+  "wilson_ci": {
+    "IrisDeepNet": {
+      "rank1": 70.72500000000001,
+      "ci95_low": 69.29554179465289,
+      "ci95_high": 72.11468928098898,
+      "n": 4000
+    },
+    "DBN": {
+      "rank1": 58.975,
+      "ci95_low": 57.44277532595411,
+      "ci95_high": 60.49000266699574,
+      "n": 4000
+    },
+    "Highest Rank": {
+      "rank1": 64.075,
+      "ci95_low": 62.57531971082233,
+      "ci95_high": 65.54767196057259,
+      "n": 4000
+    },
+    "Borda Count": {
+      "rank1": 69.35,
+      "ci95_low": 67.90324860212928,
+      "ci95_high": 70.75962094255928,
+      "n": 4000
+    },
+    "Logistic Regression": {
+      "rank1": 80.325,
+      "ci95_low": 79.06418035782163,
+      "ci95_high": 81.527629406658,
+      "n": 4000
+    }
+  },
+  "bootstrap_ci": {
+    "IrisDeepNet": {
+      "auc": 0.9773103274999999,
+      "auc_ci_low": 0.9745301516874999,
+      "auc_ci_high": 0.9799518469375,
+      "auc_std": 0.001346174415495439
+    },
+    "DBN": {
+      "auc": 0.9349053712500001,
+      "auc_ci_low": 0.929908218875,
+      "auc_ci_high": 0.93964370465625,
+      "auc_std": 0.0026656714507788904
+    },
+    "Highest Rank": {
+      "auc": 0.9781372887500001,
+      "auc_ci_low": 0.97511591821875,
+      "auc_ci_high": 0.980727924125,
+      "auc_std": 0.001459689087100005
+    },
+    "Borda Count": {
+      "auc": 0.98718293875,
+      "auc_ci_low": 0.985189616875,
+      "auc_ci_high": 0.9892181447187499,
+      "auc_std": 0.0010141258543584991
+    },
+    "Logistic Regression": {
+      "auc": 0.987712175,
+      "auc_ci_low": 0.9857440419375,
+      "auc_ci_high": 0.9894241162499999,
+      "auc_std": 0.0009409719607077223
+    }
+  }
+}

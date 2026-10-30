@@ -41,9 +41,12 @@ datasets/cache/
 
 # ---------------------------------------------------------------------
 # Trained model checkpoints and intermediate artefacts
-# (regenerate with run_pipeline.py)
+# (regenerate with run_pipeline.py).
+# NB: outputs/* instead of outputs/ so git descends into the folder
+# and the negation rules below can keep the small results JSONs.
 # ---------------------------------------------------------------------
-outputs/
+outputs/*
+outputs/results/*
 *.pth
 *.pt
 *.ckpt
@@ -51,6 +54,14 @@ outputs/
 *.npy
 *.pkl
 *.joblib
+
+# Keep the small thesis-reported metrics so the Results and Tables
+# tab works on the cloud deployment without the heavy checkpoints,
+# templates, embeddings or figure PNGs.
+!outputs/results/
+!outputs/results/*.json
+!outputs/results/*.md
+!outputs/results/*.log
 
 # ---------------------------------------------------------------------
 # Logs

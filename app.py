@@ -73,18 +73,25 @@ def _remap_state_dict(sd):
 
 @st.cache_resource(show_spinner="Loading IrisDeepNet + DBN-style weights...")
 def load_models():
-    """Load both networks with their CASIA-trained weights (keys remapped)."""
+    """Load both networks with their CASIA-trained weights (keys remapped).
+
+    Returns (None, None) if the checkpoints are not available (e.g. the
+    cloud deployment, which does not carry the ~47 MB .pth files).
+    """
+    cnn_ckpt = cfg.OUT_CKPT / "cnn_best.pth"
+    dbn_ckpt = cfg.OUT_CKPT / "dbn_best.pth"
+    if not cnn_ckpt.exists() or not dbn_ckpt.exists():
+        return None, None
+
     cnn = IrisDeepNetResNet18(n_classes=1000).to(cfg.DEVICE).eval()
-    sd = torch.load(cfg.OUT_CKPT / "cnn_best.pth",
-                    map_location=cfg.DEVICE)
+    sd = torch.load(cnn_ckpt, map_location=cfg.DEVICE)
     missing, unexpected = cnn.load_state_dict(_remap_state_dict(sd),
                                               strict=False)
     assert not missing,    f"CNN missing: {missing[:5]}"
     assert not unexpected, f"CNN unexpected: {unexpected[:5]}"
 
     dbn = DBNStyleCNN(n_classes=1000).to(cfg.DEVICE).eval()
-    sd = torch.load(cfg.OUT_CKPT / "dbn_best.pth",
-                    map_location=cfg.DEVICE)
+    sd = torch.load(dbn_ckpt, map_location=cfg.DEVICE)
     missing, unexpected = dbn.load_state_dict(_remap_state_dict(sd),
                                               strict=False)
     assert not missing,    f"DBN missing: {missing[:5]}"
@@ -95,9 +102,17 @@ def load_models():
 
 @st.cache_data(show_spinner="Loading 1,000-subject gallery embeddings...")
 def load_gallery():
-    """Load the pre-computed CASIA gallery embeddings."""
-    cnn_e = np.load(cfg.OUT_FEAT / "cnn_eval.npz", allow_pickle=True)
-    dbn_e = np.load(cfg.OUT_FEAT / "dbn_eval.npz", allow_pickle=True)
+    """Load the pre-computed CASIA gallery embeddings.
+
+    Returns (None, None, None, None) when the gallery .npz files are
+    not present (cloud deployments).
+    """
+    cnn_npz = cfg.OUT_FEAT / "cnn_eval.npz"
+    dbn_npz = cfg.OUT_FEAT / "dbn_eval.npz"
+    if not cnn_npz.exists() or not dbn_npz.exists():
+        return None, None, None, None
+    cnn_e = np.load(cnn_npz, allow_pickle=True)
+    dbn_e = np.load(dbn_npz, allow_pickle=True)
     return (
         np.asarray(cnn_e["g_emb"]), np.asarray(cnn_e["g_y"]),
         np.asarray(dbn_e["g_emb"]), np.asarray(dbn_e["g_y"]),
@@ -106,8 +121,15 @@ def load_gallery():
 
 @st.cache_data(show_spinner="Indexing CASIA image paths...")
 def load_casia_catalog():
-    """Return deterministic list of (subject, eye, path, key) records."""
-    return casia_thousand.enumerate_images()
+    """Return deterministic list of (subject, eye, path, key) records.
+
+    Returns [] when the CASIA dataset is not mounted (cloud deployments
+    do not carry it — it is licensed CRIPAC research data).
+    """
+    try:
+        return casia_thousand.enumerate_images()
+    except Exception:
+        return []
 
 
 # =====================================================================
@@ -245,17 +267,32 @@ st.sidebar.caption("UNITEN PhD Thesis — Chapter 3 Methodology")
 st.sidebar.markdown("---")
 
 st.sidebar.header("Input source")
-mode = st.sidebar.radio(
-    "Choose source:",
-    ("Pick from CASIA-Iris-Thousand", "Upload my own image"),
-)
+
+# Detect whether CASIA is mounted. If not (cloud deployment), hide the
+# "Pick from CASIA" option entirely and force the upload path so the
+# user gets a working experience instead of an empty dropdown.
+_catalog_cached = load_casia_catalog()
+_casia_available = len(_catalog_cached) > 0
+
+if _casia_available:
+    mode = st.sidebar.radio(
+        "Choose source:",
+        ("Pick from CASIA-Iris-Thousand", "Upload my own image"),
+    )
+else:
+    mode = "Upload my own image"
+    st.sidebar.info(
+        "CASIA-Iris-Thousand is a licensed CRIPAC research dataset and "
+        "is not bundled with the cloud demo. Upload any iris image "
+        "below to run Stages 1–2 (segmentation + Daugman unwrap) live."
+    )
 
 img = None
 src_label = ""
 ground_truth_subject = None
 
 if mode == "Pick from CASIA-Iris-Thousand":
-    catalog = load_casia_catalog()
+    catalog = _catalog_cached
     subject_ids = sorted({r["subject"] for r in catalog})
     subject = st.sidebar.selectbox(
         f"Subject (0 – {max(subject_ids)})",
@@ -508,41 +545,53 @@ $$x(r,\\theta) = c_x + (r_p + r\\,(r_l - r_p))\\cos\\theta,\\quad
     show_algorithms_for_stage("Stage 2 — Daugman unwrap", ["2"])
 
 # ---- 4) Features tab -------------------------------------------------
+cnn, dbn = load_models()
+cnn_emb = dbn_emb = None
+if cnn is not None and dbn is not None:
+    cnn_emb, dbn_emb = extract_embeddings(polar, cnn, dbn)
+
 with tab_feat:
     st.subheader("Stage 3 — Feature extraction")
     st.caption("Both networks produce a 256-D L2-normalised embedding.")
 
-    cnn, dbn = load_models()
-    t0 = time.time()
-    cnn_emb, dbn_emb = extract_embeddings(polar, cnn, dbn)
-    t_feat = time.time() - t0
-    st.caption(f"Embedding runtime: **{t_feat*1000:.0f} ms** "
-               f"on `{cfg.DEVICE}`")
+    if cnn is None or dbn is None:
+        st.warning(
+            "**Trained checkpoints not available on this deployment.** "
+            "The .pth files (cnn_best.pth, dbn_best.pth, ~47 MB total) "
+            "are not bundled with the cloud demo. Clone the repository "
+            "locally and run `run_pipeline.py` to generate them from "
+            "CASIA-Iris-Thousand. See the Algorithms tab for the full "
+            "network specifications."
+        )
+    else:
+        st.caption(f"Embedding device: `{cfg.DEVICE}`")
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("**IrisDeepNet** (ResNet-18 backbone, "
-                    "ImageNet-pretrained)")
-        fig, ax = plt.subplots(figsize=(8, 1.6))
-        ax.bar(range(len(cnn_emb)), cnn_emb,
-               color="#1f77b4", width=1.0)
-        ax.set_xlim(0, len(cnn_emb))
-        ax.set_ylim(-0.3, 0.3)
-        ax.set_xticks([]); ax.axhline(0, color="k", lw=0.3)
-        ax.set_title("256-D embedding", fontsize=9)
-        fig.tight_layout(); st.pyplot(fig, use_container_width=True)
-        st.caption(f"‖e‖ = {np.linalg.norm(cnn_emb):.3f}  (should ≈ 1.0)")
-    with c2:
-        st.markdown("**DBN-style CNN** (4-layer, from scratch)")
-        fig, ax = plt.subplots(figsize=(8, 1.6))
-        ax.bar(range(len(dbn_emb)), dbn_emb,
-               color="#d62728", width=1.0)
-        ax.set_xlim(0, len(dbn_emb))
-        ax.set_ylim(-0.3, 0.3)
-        ax.set_xticks([]); ax.axhline(0, color="k", lw=0.3)
-        ax.set_title("256-D embedding", fontsize=9)
-        fig.tight_layout(); st.pyplot(fig, use_container_width=True)
-        st.caption(f"‖e‖ = {np.linalg.norm(dbn_emb):.3f}  (should ≈ 1.0)")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**IrisDeepNet** (ResNet-18 backbone, "
+                        "ImageNet-pretrained)")
+            fig, ax = plt.subplots(figsize=(8, 1.6))
+            ax.bar(range(len(cnn_emb)), cnn_emb,
+                   color="#1f77b4", width=1.0)
+            ax.set_xlim(0, len(cnn_emb))
+            ax.set_ylim(-0.3, 0.3)
+            ax.set_xticks([]); ax.axhline(0, color="k", lw=0.3)
+            ax.set_title("256-D embedding", fontsize=9)
+            fig.tight_layout(); st.pyplot(fig, use_container_width=True)
+            st.caption(f"‖e‖ = {np.linalg.norm(cnn_emb):.3f}  "
+                       f"(should ≈ 1.0)")
+        with c2:
+            st.markdown("**DBN-style CNN** (4-layer, from scratch)")
+            fig, ax = plt.subplots(figsize=(8, 1.6))
+            ax.bar(range(len(dbn_emb)), dbn_emb,
+                   color="#d62728", width=1.0)
+            ax.set_xlim(0, len(dbn_emb))
+            ax.set_ylim(-0.3, 0.3)
+            ax.set_xticks([]); ax.axhline(0, color="k", lw=0.3)
+            ax.set_title("256-D embedding", fontsize=9)
+            fig.tight_layout(); st.pyplot(fig, use_container_width=True)
+            st.caption(f"‖e‖ = {np.linalg.norm(dbn_emb):.3f}  "
+                       f"(should ≈ 1.0)")
 
     show_algorithms_for_stage("Stage 3 — Features",
                               ["3.1", "3.2", "3.3"])
@@ -629,6 +678,20 @@ with tab_id:
     st.markdown("---")
 
     cnn_gal, cnn_y, dbn_gal, dbn_y = load_gallery()
+
+    if (cnn_emb is None or dbn_emb is None or
+            cnn_gal is None or dbn_gal is None):
+        st.warning(
+            "**Live identification is unavailable on this deployment.** "
+            "It requires both the trained checkpoints (~47 MB .pth) "
+            "and the 6,000-vector CASIA gallery (~82 MB .npz). "
+            "Neither is bundled with the cloud demo. The precomputed "
+            "batch results (rank-1, EER, AUC, McNemar) are available "
+            "on the **Results and Tables** tab, and the full "
+            "pseudocode is on the **Algorithms** tab."
+        )
+        st.stop()
+
     t0 = time.time()
     ident = identify(cnn_emb, dbn_emb, cnn_gal, cnn_y, dbn_gal, dbn_y,
                      top_k=top_k)
@@ -710,8 +773,12 @@ with tab_id:
 @st.cache_data(show_spinner="Loading thesis metrics...")
 def load_thesis_metrics():
     import json
-    final = json.loads((cfg.OUT_RES / "final_metrics.json").read_text())
-    sig   = json.loads((cfg.OUT_RES / "significance.json").read_text())
+    fm = cfg.OUT_RES / "final_metrics.json"
+    sg = cfg.OUT_RES / "significance.json"
+    if not fm.exists() or not sg.exists():
+        return None, None
+    final = json.loads(fm.read_text())
+    sig   = json.loads(sg.read_text())
     return final, sig
 
 
@@ -724,6 +791,14 @@ with tab_results:
     )
 
     final, sig = load_thesis_metrics()
+    if final is None or sig is None:
+        st.warning(
+            "Thesis metrics JSON files are not present in this "
+            "deployment. Run `run_pipeline.py` locally against "
+            "CASIA-Iris-Thousand to generate `outputs/results/"
+            "final_metrics.json` and `significance.json`."
+        )
+        st.stop()
 
     # -------- Table 1: identification + verification per method -----
     st.markdown("##### Table 1 — Identification and verification "

@@ -251,9 +251,27 @@ def load_algorithms_doc():
 # =====================================================================
 # Pipeline functions
 # =====================================================================
-def run_segmentation(img):
-    """Run the four segmentation sub-stages and build an overlay."""
-    I_1, M_d = remove_specular(img)
+def run_segmentation(img_full):
+    """Run the four segmentation sub-stages and build an overlay.
+
+    IMPORTANT: specular reflection removal runs on the FULL-SIZE input
+    (typically 640 x 480 for CASIA-Iris-Thousand). A 2:1 downsample
+    with bilinear interpolation averages the 1-3 pixel wide NIR
+    highlights and drops them below the T=240 threshold documented in
+    the thesis (Eq. 3.1), so doing it on the resized image produces
+    an empty mask and a no-op inpaint. We inpaint first at full size,
+    then resize the clean image for the downstream geometric
+    detectors (pupil / limbus / eyelid).
+    """
+    # (a) Specular removal at native resolution
+    I_1_full, M_d_full = remove_specular(img_full)
+
+    # (b) Resize the clean image to the pipeline's standard geometry
+    tgt = (cfg.TARGET_HW[1], cfg.TARGET_HW[0])
+    I_1 = cv2.resize(I_1_full, tgt)
+    M_d_disp = cv2.resize(M_d_full, tgt, interpolation=cv2.INTER_NEAREST)
+
+    # (c) Pupil / limbus / eyelid at the standard geometry
     pupil    = detect_pupil(I_1)
     limbus   = detect_limbus(I_1, pupil)
     upper, lower = detect_eyelids(I_1, pupil, limbus)
@@ -261,7 +279,7 @@ def run_segmentation(img):
     cx, cy, rp = pupil
     _, _, rl   = limbus
 
-    overlay = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+    overlay = cv2.cvtColor(I_1, cv2.COLOR_GRAY2RGB)
     cv2.circle(overlay, (cx, cy), rp, (0, 255, 0), 2)       # pupil
     cv2.circle(overlay, (cx, cy), rl, (0, 0, 255), 2)       # limbus
     cv2.line(overlay, (0, upper), (overlay.shape[1], upper),
@@ -270,7 +288,11 @@ def run_segmentation(img):
              (255, 165, 0), 1)
 
     return {
-        "inpainted": I_1, "specular_mask": M_d,
+        "inpainted": I_1, "specular_mask": M_d_disp,
+        "original_full": img_full,
+        "inpainted_full": I_1_full,
+        "specular_mask_full": M_d_full,
+        "specular_pixels": int(M_d_full.sum() // 255),
         "pupil": pupil, "limbus": limbus,
         "upper": upper, "lower": lower,
         "overlay": overlay,
@@ -405,8 +427,12 @@ if img is None:
     st.info("Pick an image from the sidebar to start.")
     st.stop()
 
-# Normalise input geometry
-img = cv2.resize(img, (cfg.TARGET_HW[1], cfg.TARGET_HW[0]))
+# Keep the original (native) resolution so specular removal runs on
+# the real pixels — the 320x240 resize happens inside run_segmentation
+# AFTER the Telea inpaint so T=240 can actually fire on the 1-3 px
+# NIR highlights that disappear under bilinear downsampling.
+img_full = img
+img      = cv2.resize(img_full, (cfg.TARGET_HW[1], cfg.TARGET_HW[0]))
 
 # -------- Tabs for each stage ----------------------------------------
 (tab_overview, tab_in, tab_seg, tab_norm, tab_feat, tab_id, tab_results,
@@ -525,26 +551,38 @@ with tab_in:
 
 # ---- 2) Segmentation tab --------------------------------------------
 t_seg_start = time.time()
-seg = run_segmentation(img)
+seg = run_segmentation(img_full)
 t_seg = time.time() - t_seg_start
 
 with tab_seg:
     st.subheader("Stage 1 — Four-stage iris segmentation")
-    st.caption(f"Total segmentation runtime: **{t_seg*1000:.0f} ms**")
+    st.caption(
+        f"Total segmentation runtime: **{t_seg*1000:.0f} ms**  |  "
+        f"Native input: `{img_full.shape[1]} × {img_full.shape[0]}` "
+        f"→ downstream: `{img.shape[1]} × {img.shape[0]}`"
+    )
 
     st.markdown("##### §3.3.1 — Specular reflection removal "
                 "(Telea inpainting, Eqs. 3.1-3.2)")
+    n_spec = seg["specular_pixels"]
+    st.caption(
+        f"Detected **{n_spec} specular pixel{'s' if n_spec != 1 else ''}** "
+        f"at threshold T = {cfg.SPECULAR_THRESHOLD} on the native "
+        f"{img_full.shape[1]} × {img_full.shape[0]} image "
+        f"(dilated with a {cfg.SPECULAR_DILATE_SE[0]}×"
+        f"{cfg.SPECULAR_DILATE_SE[1]} ellipse before inpainting)."
+    )
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.image(img, caption="(a) Original $I$",
+        st.image(seg["original_full"], caption="(a) Original $I$",
                  use_container_width=True, clamp=True)
     with c2:
-        st.image(seg["specular_mask"],
+        st.image(seg["specular_mask_full"],
                  caption=f"(b) Reflection mask $M_d$ "
                          f"(T = {cfg.SPECULAR_THRESHOLD})",
                  use_container_width=True, clamp=True)
     with c3:
-        st.image(seg["inpainted"],
+        st.image(seg["inpainted_full"],
                  caption="(c) After Telea inpainting $I_1$",
                  use_container_width=True, clamp=True)
 
